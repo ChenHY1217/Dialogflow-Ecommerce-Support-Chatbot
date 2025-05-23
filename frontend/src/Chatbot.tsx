@@ -63,24 +63,11 @@ const Chatbot: React.FC = () => {
             setIsLoading(true);
     
             try {
-                const res = await fetch(
-                    "https://dialogflow.googleapis.com/v2/projects/YOUR_PROJECT_ID/agent/sessions/123456789:detectIntent",
-                    {
-                        method: "POST",
-                        headers: {
-                            Authorization: "Bearer YOUR_DIALOGFLOW_ACCESS_TOKEN",
-                            "Content-Type": "application/json",
-                        },
-                        body: JSON.stringify({
-                            queryInput: {
-                                text: {
-                                    text: text,
-                                    languageCode: "en",
-                                },
-                            },
-                        }),
-                    }
-                );
+                const res = await fetch('http://localhost:5000/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: input, sessionId })
+                });
     
                 const data = await res.json();
                 const botReply = data.queryResult?.fulfillmentText || "Sorry, I'm having trouble understanding. Could you rephrase that?";
