@@ -1,9 +1,21 @@
 import React, { useState, useRef, useEffect } from "react";
-import { v4 as uuidv4 } from 'uuid';
 
-const sessionId = uuidv4(); // or store in localStorage
+// Generate a random session ID if one doesn't exist in localStorage
+const getSessionId = (): string => {
+    const storedSessionId = localStorage.getItem('dialogflowSessionId');
+    
+    if (storedSessionId) {
+        return storedSessionId;
+    } else {
+        // Generate a random session ID with timestamp to ensure uniqueness
+        const newSessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+        localStorage.setItem('dialogflowSessionId', newSessionId);
+        return newSessionId;
+    }
+};
 
 const Chatbot: React.FC = () => {
+    const [sessionId] = useState(getSessionId());
     const [messages, setMessages] = useState([
         { from: "bot", text: "Hi! Welcome to ShopSmart support. How can I help you today?" },
     ]);
@@ -20,13 +32,15 @@ const Chatbot: React.FC = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     };
 
+    // Function to send message to the backend
+    // and handle the response from Dialogflow
     const sendMessage = async () => {
         if (!input.trim()) return;
 
         const userMessage = { from: "user", text: input };
         setMessages((msgs) => [...msgs, userMessage]);
-        setIsLoading(true);
-
+        setIsLoading(true);        
+        
         try {
             const res = await fetch('http://localhost:5000/chat', {
                 method: 'POST',
@@ -35,7 +49,7 @@ const Chatbot: React.FC = () => {
             });
 
             const data = await res.json();
-            const botReply = data.queryResult?.fulfillmentText || "Sorry, I'm having trouble understanding. Could you rephrase that?";
+            const botReply = data.reply || "Sorry, I'm having trouble understanding. Could you rephrase that?";
 
             setMessages((msgs) => [
                 ...msgs,
@@ -51,7 +65,9 @@ const Chatbot: React.FC = () => {
             setIsLoading(false);
             setInput("");
         }
-    };    // Handle quick replies
+    };    
+    
+    // Handle quick replies
     const handleQuickReply = (text: string) => {
         // Create a modified version of sendMessage that uses the provided text directly
         // instead of relying on the input state value
@@ -62,15 +78,15 @@ const Chatbot: React.FC = () => {
             setMessages((msgs) => [...msgs, userMessage]);
             setIsLoading(true);
     
-            try {
+            try {                
                 const res = await fetch('http://localhost:5000/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: input, sessionId })
+                    body: JSON.stringify({ message: text, sessionId })
                 });
     
                 const data = await res.json();
-                const botReply = data.queryResult?.fulfillmentText || "Sorry, I'm having trouble understanding. Could you rephrase that?";
+                const botReply = data.reply || "Sorry, I'm having trouble understanding. Could you rephrase that?";
     
                 setMessages((msgs) => [
                     ...msgs,
@@ -134,11 +150,17 @@ const Chatbot: React.FC = () => {
                     </div>
                 )}
                 <div ref={messagesEndRef} />
-            </div>
-
+            </div>            
             {/* Quick reply suggestions */}
             <div className="quick-replies px-3 py-2 bg-gray-50 border-t border-gray-200 flex space-x-2 overflow-x-auto">
-                {["Order Status", "Return Policy", "Shipping Info", "Product Help"].map((text, i) => (
+                {[
+                    "Check Order Status", 
+                    "Order Details", 
+                    "Shipping Information", 
+                    "Return Policy", 
+                    "Product Recommendations", 
+                    "FAQs"
+                ].map((text, i) => (
                     <button 
                         key={i} 
                         onClick={() => handleQuickReply(text)}

@@ -13,8 +13,7 @@ import {
   getOrderDetails, 
   getTrackingInfo,
   getShippingInfo, 
-  getReturnPolicy, 
-  searchProducts,
+  getReturnPolicy,
   getRecommendedProducts,
   getFAQs
 } from './databaseUtils.js';
@@ -61,8 +60,17 @@ app.post('/chat', async (req, res) => {
             }
         );
 
-        const fulfillmentText = response.data.queryResult.fulfillmentText;
-        res.json({ reply: fulfillmentText });
+        const result = response.data.queryResult;
+        if (!result.allRequiredParamsPresent) {
+            // Still need to collect something (e.g. order_number)
+            const prompt = result.fulfillmentText; // "What’s your order number?"
+            return res.json({ reply: prompt, done: false });
+        } else {
+            // All slots filled; send to webhook or return final answer
+            const reply = result.fulfillmentText;
+            return res.json({ reply, done: true });
+        }
+
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Dialogflow API call failed' });
@@ -76,18 +84,18 @@ app.post('/chat', async (req, res) => {
 app.post('/webhook', async (req, res) => {
     const body = req.body;
 
-    // Extract intent and parameters
-    const intentName = body.queryResult.intent.displayName;
-    const parameters = body.queryResult.parameters;
+    // Extract intent and parameters - Dialogflow V2 webhook format
+    const intentName = body.queryResult?.intent?.displayName;
+    const parameters = body.queryResult?.parameters;
     
     console.log("Received intent:", intentName);
     console.log("With parameters:", parameters);
 
     let responseText = '';
-    let fulfillmentMessages = [];
 
     try {
-        switch (intentName) {
+        switch (intentName) {            
+            
             case 'Check Order Status':
                 const orderNumber = parameters.order_number;
                 const status = await getOrderStatus(orderNumber);
@@ -101,12 +109,12 @@ app.post('/webhook', async (req, res) => {
                     if (status === "shipped" || status === "delivered") {
                         const trackingInfo = await getTrackingInfo(orderNumber);
                         if (trackingInfo.found) {
-                            responseText += ` Tracking number: ${trackingInfo.trackingNumber}. ${trackingInfo.lastUpdate}.`;
+                            responseText += `\n\nTracking number: ${trackingInfo.trackingNumber}.\n${trackingInfo.lastUpdate}.`;
                         }
                     }
                 }
                 break;
-                
+                  
             case 'Order Details':
                 const orderDetailsNumber = parameters.order_number;
                 const orderDetails = await getOrderDetails(orderDetailsNumber);
@@ -114,7 +122,7 @@ app.post('/webhook', async (req, res) => {
                 if (!orderDetails) {
                     responseText = `I couldn't find an order with number #${orderDetailsNumber}. Please check the number and try again.`;
                 } else {
-                    responseText = `Order #${orderDetailsNumber} placed on ${orderDetails.orderDate}:\n`;
+                    responseText = `Order #${orderDetailsNumber} placed on ${orderDetails.orderDate}\n\n`;
                     
                     // Add product information
                     if (orderDetails.products && orderDetails.products.length > 0) {
@@ -131,7 +139,7 @@ app.post('/webhook', async (req, res) => {
                     }
                 }
                 break;
-                
+            
             case 'Shipping Information':
                 const shippingType = parameters.shipping_type;
                 const shippingDetails = await getShippingInfo(shippingType);
@@ -139,35 +147,35 @@ app.post('/webhook', async (req, res) => {
                 if (shippingType && shippingDetails.type) {
                     responseText = `${shippingDetails.name} costs $${shippingDetails.cost} and takes ${shippingDetails.estimatedDays}.`;
                 } else {
-                    responseText = "We offer the following shipping options:\n";
+                    responseText = "We offer the following shipping options:\n\n";
                     shippingDetails.types.forEach(option => {
                         responseText += `- ${option.name}: $${option.cost} (${option.estimatedDays})\n`;
                     });
                     responseText += `\nOrders over $${shippingDetails.freeThreshold} qualify for free standard shipping.`;
                 }
                 break;
-                
+                  
             case 'Return Policy':
                 const category = parameters.product_category;
                 const returnPolicyInfo = await getReturnPolicy(category);
                 
                 if (category && returnPolicyInfo.category) {
-                    responseText = `Return policy for ${category} products: ${returnPolicyInfo.policy}`;
+                    responseText = `Return policy for ${category} products:\n\n${returnPolicyInfo.policy}`;
                 } else {
                     responseText = returnPolicyInfo.general + "\n\n";
                     
                     if (returnPolicyInfo.electronics) {
-                        responseText += `Electronics: ${returnPolicyInfo.electronics}\n`;
+                        responseText += `Electronics:\n${returnPolicyInfo.electronics}\n\n`;
                     }
                     
                     if (returnPolicyInfo.clothing) {
-                        responseText += `Clothing: ${returnPolicyInfo.clothing}\n`;
+                        responseText += `Clothing:\n${returnPolicyInfo.clothing}\n\n`;
                     }
                     
-                    responseText += `\n${returnPolicyInfo.process}`;
+                    responseText += `Return Process:\n${returnPolicyInfo.process}`;
                 }
                 break;
-                
+            
             case 'Product Recommendations':
                 const productId = parameters.product_id;
                 const productCategory = parameters.product_category;
@@ -177,11 +185,11 @@ app.post('/webhook', async (req, res) => {
                     responseText = "Sorry, I don't have any recommendations at the moment.";
                 } else {
                     responseText = productCategory 
-                        ? `Here are some popular products in the ${productCategory} category:\n` 
-                        : "Here are some products you might like:\n";
+                        ? `Here are some popular products in the ${productCategory} category:\n\n` 
+                        : "Here are some products you might like:\n\n";
                     
                     recommendations.forEach(product => {
-                        responseText += `- ${product.name}: $${product.price} - ${product.description}\n`;
+                        responseText += `- ${product.name}: $${product.price}\n  ${product.description}\n\n`;
                     });
                 }
                 break;
@@ -217,9 +225,12 @@ app.post('/webhook', async (req, res) => {
 
     // Respond in Dialogflow webhook format
     res.json({
-        fulfillmentText: responseText,
-        fulfillmentMessages: fulfillmentMessages.length > 0 ? fulfillmentMessages : undefined
+        fulfillmentText: responseText
     });
+});
+
+app.get('/', (req, res) => {
+    res.send('Server is running');
 });
 
 
